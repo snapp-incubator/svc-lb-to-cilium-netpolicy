@@ -1,0 +1,12 @@
+# Make sure to update the corresponding values used in envtest as well!
+
+controller:
+  exclude:
+    namespaceSelector:
+      matchNames:
+      - ns1
+      matchLabels:
+      - matcherName: "matcher-1"
+        labels:
+          k1: v1
+          k2: v2

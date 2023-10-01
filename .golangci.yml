@@ -1,0 +1,44 @@
+run:
+  # timeout for analysis, e.g. 30s, 5m, default is 1m
+  deadline: 5m
+  # include test files or not, default is true
+  tests: false
+output:
+  option: value
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - goconst
+    - godot
+    # - godox
+    - gofmt
+    - goimports
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - misspell
+    - nestif
+    - nilerr
+    - nlreturn
+    - nolintlint
+    - nonamedreturns
+    - prealloc
+    - predeclared
+    - reassign
+    - revive
+    - staticcheck
+    - tagalign
+    - tagliatelle
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - varnamelen
+    - wastedassign
+    - whitespace
+    - wsl
+linters-settings:
+  goimports:
+    local-prefixes: github.com/snapp-incubator/svc-lb-to-cilium-netpolicy
