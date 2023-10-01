@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-controller-manager
+  name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-ctrl-mgr
   labels:
     app.kubernetes.io/component: manager
     app.kubernetes.io/created-by: svc-lb-to-cilium-netpolicy
@@ -84,12 +84,12 @@ spec:
           name: config
       securityContext:
         runAsNonRoot: true
-      serviceAccountName: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-controller-manager
+      serviceAccountName: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-ctrl-mgr
       terminationGracePeriodSeconds: 10
       volumes:
       - configMap:
           items:
           - key: conf
             path: config.yaml
-          name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-controller-manager-config
+          name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-ctrl-mgr-config
         name: config

@@ -55,5 +55,5 @@ roleRef:
   name: '{{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-leader-election-role'
 subjects:
 - kind: ServiceAccount
-  name: '{{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-controller-manager'
+  name: '{{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-ctrl-mgr'
   namespace: '{{ .Release.Namespace }}'

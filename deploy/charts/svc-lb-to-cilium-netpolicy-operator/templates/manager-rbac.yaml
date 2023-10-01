@@ -1,7 +1,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-manager-role
+  name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-mgr-role
   labels:
   {{- include "svc-lb-to-cilium-netpolicy-operator.labels" . | nindent 4 }}
 rules:
@@ -51,7 +51,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-manager-rolebinding
+  name: {{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-mgr-rolebinding
   labels:
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: svc-lb-to-cilium-netpolicy
@@ -60,8 +60,8 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: '{{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-manager-role'
+  name: '{{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-mgr-role'
 subjects:
 - kind: ServiceAccount
-  name: '{{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-controller-manager'
+  name: '{{ include "svc-lb-to-cilium-netpolicy-operator.fullname" . }}-ctrl-mgr'
   namespace: '{{ .Release.Namespace }}'
