@@ -3,6 +3,16 @@ entries:
   svc-lb-to-cilium-netpolicy-operator:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2023-10-02T20:23:13.399798947Z"
+    description: A Helm chart for Kubernetes
+    digest: 89d8a9e15eb5585761868615ce3e64a32cc419d7afeba68c2db5497d71f13252
+    name: svc-lb-to-cilium-netpolicy-operator
+    type: application
+    urls:
+    - https://github.com/snapp-incubator/svc-lb-to-cilium-netpolicy/releases/download/svc-lb-to-cilium-netpolicy-operator-1.0.2/svc-lb-to-cilium-netpolicy-operator-1.0.2.tgz
+    version: 1.0.2
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2023-10-01T16:43:07.395080094Z"
     description: A Helm chart for Kubernetes
     digest: f8946b8196a567759fd7996df2a6f0bcf665395b65e0c9ec79ad4fd1111ed46d
@@ -21,4 +31,4 @@ entries:
     urls:
     - https://github.com/snapp-incubator/svc-lb-to-cilium-netpolicy/releases/download/svc-lb-to-cilium-netpolicy-operator-1.0.0/svc-lb-to-cilium-netpolicy-operator-1.0.0.tgz
     version: 1.0.0
-generated: "2023-10-01T16:43:07.395092294Z"
+generated: "2023-10-02T20:23:13.399809747Z"
