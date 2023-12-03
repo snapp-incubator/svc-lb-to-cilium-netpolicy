@@ -30,10 +30,14 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/snapp-incubator/svc-lb-to-cilium-netpolicy/internal/config"
 	"github.com/snapp-incubator/svc-lb-to-cilium-netpolicy/internal/consts"
@@ -41,12 +45,25 @@ import (
 )
 
 var (
-	desiredCNPannotationsMap      = map[string]string{"snappcloud.io/team": "snappcloud", "snappcloud.io/sub-team": "network"}
-	desiredCNPadditionalLabelsMap = map[string]string{"snappcloud.io/controller-managed": "true", "snappcloud.io/controller": "svc-lb-to-cilium-netpolicy"}
+	controllerAnnotationsMap = map[string]string{"snappcloud.io/team": "snappcloud", "snappcloud.io/sub-team": "network"}
+	controllerLabelsMap      = map[string]string{"snappcloud.io/controller-managed": "true", "snappcloud.io/controller": "svc-lb-to-cilium-netpolicy"}
 )
 
 // buildCNP builds and returns a CiliumNetworkPolicy struct based on the Service object.
 func (re *ReconcilerExtended) buildCNP() *ciliumv2.CiliumNetworkPolicy {
+	var fromEntities cilium_policy_api.EntitySlice
+
+	if re.service.Annotations["metallb.universe.tf/address-pool"] == "vpn-access" {
+		fromEntities = cilium_policy_api.EntitySlice{
+			cilium_policy_api.EntityCluster,
+			cilium_policy_api.EntityWorld,
+		}
+	} else {
+		fromEntities = cilium_policy_api.EntitySlice{
+			cilium_policy_api.EntityCluster,
+		}
+	}
+
 	endpointSelectorLabelsMap := make(map[string]string, len(re.service.Spec.Selector))
 
 	// Cilium imports labels from different sources.
@@ -73,8 +90,8 @@ func (re *ReconcilerExtended) buildCNP() *ciliumv2.CiliumNetworkPolicy {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        re.service.Name,
 			Namespace:   re.service.Namespace,
-			Labels:      re.getCNPdesiredLabels(),
-			Annotations: desiredCNPannotationsMap,
+			Labels:      re.getCNPDesiredLabels(),
+			Annotations: controllerAnnotationsMap,
 		},
 		Spec: &cilium_policy_api.Rule{
 			EndpointSelector: cilium_policy_api.EndpointSelector{
@@ -85,9 +102,7 @@ func (re *ReconcilerExtended) buildCNP() *ciliumv2.CiliumNetworkPolicy {
 			Ingress: []cilium_policy_api.IngressRule{
 				{
 					IngressCommonRule: cilium_policy_api.IngressCommonRule{
-						FromEntities: cilium_policy_api.EntitySlice{
-							cilium_policy_api.EntityCluster,
-						},
+						FromEntities: fromEntities,
 					},
 				},
 			},
@@ -103,7 +118,7 @@ func (re *ReconcilerExtended) isServiceLoadBalancer() bool {
 }
 
 // isCNPfound returns true if the current CiliumNetworkPolicy is not nil and false otherwise.
-func (re *ReconcilerExtended) isCNPfound() bool {
+func (re *ReconcilerExtended) isCNPFound() bool {
 	return (re.cnp != nil)
 }
 
@@ -125,8 +140,8 @@ func (re *ReconcilerExtended) shouldDeleteCNP() bool {
 	return result
 }
 
-// getCNPdesiredLabels adds controller labels to the Service object labels and return it.
-func (re *ReconcilerExtended) getCNPdesiredLabels() map[string]string {
+// getCNPDesiredLabels adds controller labels to the Service object labels and return it.
+func (re *ReconcilerExtended) getCNPDesiredLabels() map[string]string {
 	labels := make(map[string]string, len(re.service.Labels))
 
 	for k, v := range re.service.Labels {
@@ -134,44 +149,100 @@ func (re *ReconcilerExtended) getCNPdesiredLabels() map[string]string {
 	}
 
 	// Add controller labels to the labels map to be able to find CiliumNetworkPolicy objects controlled by this controllers.
-	maps.Copy(labels, desiredCNPadditionalLabelsMap)
+	maps.Copy(labels, controllerLabelsMap)
 
 	return labels
 }
 
-// shouldExcludeNamespace determine the namespace exclusion status based on the configurations defined.
-func (re *ReconcilerExtended) shouldExcludeNamespace(ctx context.Context) (bool, error) {
-	var shouldExclude bool
+// determineExclusionStatus determines the namespace exclusion status based on the exclusion reasons.
+// It returns true if the namespace should be excluded and false otherwise.
+func determineExclusionStatus(exclusionReasons map[namespaceExclusionReason]empty) bool {
+	if exclusionReasons == nil {
+		return false
+	}
+
+	var nonNetworkPolicy bool
+
+	var nonUnmanagedCiliumNetworkPolicy bool
+
+	for reason := range exclusionReasons {
+		if reason == namespaceName || reason == namespaceLabels {
+			return true
+		}
+
+		if reason == noNetworkPolicyExistence {
+			nonNetworkPolicy = true
+		}
+
+		if reason == noUnmanagedCiliumNetworkPolicyExistence {
+			nonUnmanagedCiliumNetworkPolicy = true
+		}
+
+		if nonNetworkPolicy && nonUnmanagedCiliumNetworkPolicy {
+			return true
+		}
+	}
+
+	return false
+}
+
+// determineExclusionReasons determine the namespace exclusion reasons based on the rules defined.
+//
+// Note:
+// The function assumes that the cache is locked already so it must be called from a function that already has a lock on the cache.
+func (re *ReconcilerExtended) determineExclusionReasons(ctx context.Context) error {
+	var isCiliumNetworkPolicyAbsent bool
+
+	var isNetworkPolicyAbsent bool
+
+	var isNamespaceNameExcluded bool
+
+	var isNamespaceLabelExcluded bool
 
 	var err error
 
-	shouldExclude, err = re.checkNoPolicyRule(ctx)
+	isCiliumNetworkPolicyAbsent, err = re.isCiliumNetworkPolicyAbsent(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 
-	if shouldExclude {
-		return true, nil
-	}
-
-	if re.checkExcludedNamespaceNames() {
-		return true, nil
-	}
-
-	shouldExclude, err = re.checkExcludedNamespaceLabels(ctx)
+	isNetworkPolicyAbsent, err = re.isNetworkPolicyAbsent(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 
-	if shouldExclude {
-		return true, nil
+	isNamespaceNameExcluded = re.isNamespaceNameExcluded()
+
+	isNamespaceLabelExcluded, err = re.isNamespaceLabelExcluded(ctx)
+	if err != nil {
+		return err
 	}
 
-	return false, nil
+	reasons := make(map[namespaceExclusionReason]empty)
+
+	if isCiliumNetworkPolicyAbsent {
+		reasons[noUnmanagedCiliumNetworkPolicyExistence] = struct{}{}
+	}
+
+	if isNetworkPolicyAbsent {
+		reasons[noNetworkPolicyExistence] = struct{}{}
+	}
+
+	if isNamespaceNameExcluded {
+		reasons[namespaceName] = struct{}{}
+	}
+
+	if isNamespaceLabelExcluded {
+		reasons[namespaceLabels] = struct{}{}
+	}
+
+	re.namespaceExclusionCache[re.request.Namespace] = reasons
+
+	return nil
 }
 
-// checkExcludedNamespaceNames checks the Service object's namespace name against the excluded names list configured and returns true if matched.
-func (re *ReconcilerExtended) checkExcludedNamespaceNames() bool {
+// isNamespaceNameExcluded checks the Service object's namespace name against the excluded names list configured and returns true if matched.
+func (re *ReconcilerExtended) isNamespaceNameExcluded() bool {
 	cfg := config.GetConfig()
 
 	if slices.Contains(cfg.Controller.Exclude.NamespaceSelector.MatchNames, re.service.Namespace) {
@@ -183,8 +254,8 @@ func (re *ReconcilerExtended) checkExcludedNamespaceNames() bool {
 	return false
 }
 
-// checkExcludedNamespaceLabels checks the Service object's namespace labels map against each excluded labels map configured and returns true if matched.
-func (re *ReconcilerExtended) checkExcludedNamespaceLabels(ctx context.Context) (bool, error) {
+// isNamespaceLabelExcluded checks the Service object's namespace labels map against each excluded labels map configured and returns true if matched.
+func (re *ReconcilerExtended) isNamespaceLabelExcluded(ctx context.Context) (bool, error) {
 	namespace := &corev1.Namespace{}
 
 	cfg := config.GetConfig()
@@ -204,16 +275,32 @@ func (re *ReconcilerExtended) checkExcludedNamespaceLabels(ctx context.Context) 
 	return false, nil
 }
 
-// checkNoPolicyRule list all the NetworkPolicy and CiliumNetworkPolicy objects in the Service object's namespace and returns true if both lists are empty.
-func (re *ReconcilerExtended) checkNoPolicyRule(ctx context.Context) (bool, error) {
-	ciliumNetworkPolicyList := &ciliumv2.CiliumNetworkPolicyList{}
+// isNetworkPolicyAbsent list all the NetworkPolicy objects in the Service object's namespace and returns true if the list is empty.
+func (re *ReconcilerExtended) isNetworkPolicyAbsent(ctx context.Context) (bool, error) {
 	networkPolicyList := &networkingv1.NetworkPolicyList{}
+
+	if err := re.Client.List(ctx, networkPolicyList, client.InNamespace(re.service.Namespace)); err != nil {
+		return false, fmt.Errorf(consts.NetworkPolicyListError, err)
+	}
+
+	if len(networkPolicyList.Items) == 0 {
+		re.logger.Info(consts.NamespaceExcludedNoNetworkPolicyMatchInfo)
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// isCiliumNetworkPolicyAbsent list all the CiliumNetworkPolicy objects in the Service object's namespace and returns true if the list is empty.
+func (re *ReconcilerExtended) isCiliumNetworkPolicyAbsent(ctx context.Context) (bool, error) {
+	ciliumNetworkPolicyList := &ciliumv2.CiliumNetworkPolicyList{}
 
 	// Construct a label selector to list CiliumNetworkPolicy objects not containing the controller labels
 	// This is necessary as the rule should check the presence of unmanaged policies.
-	CNPlabelSelector := labels.NewSelector()
+	labelSelector := labels.NewSelector()
 
-	for labelKey, labelValue := range desiredCNPadditionalLabelsMap {
+	for labelKey, labelValue := range controllerLabelsMap {
 		vals := make([]string, 1)
 		vals[0] = labelValue
 		requirement, err := labels.NewRequirement(labelKey, selection.NotEquals, vals)
@@ -222,22 +309,85 @@ func (re *ReconcilerExtended) checkNoPolicyRule(ctx context.Context) (bool, erro
 			return false, err
 		}
 
-		CNPlabelSelector = CNPlabelSelector.Add(*requirement)
+		labelSelector = labelSelector.Add(*requirement)
 	}
 
-	if err := re.Client.List(ctx, ciliumNetworkPolicyList, client.InNamespace(re.service.Namespace), &client.ListOptions{LabelSelector: CNPlabelSelector}); err != nil {
+	if err := re.Client.List(ctx, ciliumNetworkPolicyList, client.InNamespace(re.service.Namespace), &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return false, fmt.Errorf(consts.CiliumNetworkPolicyListError, err)
 	}
 
-	if err := re.Client.List(ctx, networkPolicyList, client.InNamespace(re.service.Namespace)); err != nil {
-		return false, fmt.Errorf(consts.NetworkPolicyListError, err)
-	}
-
-	if len(ciliumNetworkPolicyList.Items) == 0 && len(networkPolicyList.Items) == 0 {
-		re.logger.Info(consts.NamespaceExcludedNoPolicyMatchInfo)
+	if len(ciliumNetworkPolicyList.Items) == 0 {
+		re.logger.Info(consts.NamespaceExcludedNoCiliumNetworkPolicyMatchInfo)
 
 		return true, nil
 	}
 
 	return false, nil
+}
+
+// getOwnerReconcileRequest checks if a CiliumNetworkPolicy (cnp) has an owner that is a 'Service' object
+// in the default Kubernetes API group ('v1'). If such an owner exists, the function constructs and returns
+// a reconcile request for it.
+//
+// The function iterates over the owner references of the cnp. For each owner reference:
+//   - It first checks if the reference is marked as a controller. If not, it skips to the next owner reference.
+//   - Next, it attempts to parse the Group and Version from the OwnerReference's APIVersion. If parsing fails,
+//     it logs the error and continues with the next owner reference.
+//   - Then, it compares the parsed Group, Version, and Kind of the OwnerReference with the Service Group
+//     (” for core group), Version ('v1'), and Kind ('Service'). If they match, it creates a reconcile Request
+//     using the Name from the OwnerReference and the Namespace from the cnp.
+//
+// Note:
+// The function assumes that the cnp's owner, if it's a Service, is part of the core Kubernetes API group ('v1').
+func getOwnerReconcileRequest(ctx context.Context, cnp *ciliumv2.CiliumNetworkPolicy) *ctrl.Request {
+	if cnp == nil {
+		return nil
+	}
+
+	logger := log.FromContext(ctx).WithName("ciliumnetworkpolicy owner reference handler")
+
+	for _, ref := range cnp.GetOwnerReferences() {
+		if ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+
+		// Parse the Group/Version out of the OwnerReference
+		refGV, err := schema.ParseGroupVersion(ref.APIVersion)
+		if err != nil {
+			logger.Error(err, "Could not parse OwnerReference APIVersion",
+				"apiVersion", ref.APIVersion)
+
+			continue
+		}
+
+		// Compare the OwnerReference Group/Version/Kind against the Service Group/Version/Kind.
+		// If the two match, create a Request for the objected referred to by
+		// the OwnerReference. Use the Name from the OwnerReference and the Namespace from the
+		// object in the event.
+		if refGV.Group == "" && refGV.Version == "v1" && ref.Kind == "Service" {
+			request := reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: cnp.GetNamespace(),
+				Name:      ref.Name,
+			}}
+
+			return &request
+		}
+	}
+
+	return nil
+}
+
+// deduplicateRequests removes duplicate ctrl.Request objects from a slice.
+func deduplicateRequests(requests []ctrl.Request) []ctrl.Request {
+	seen := make(map[types.NamespacedName]bool)
+	result := []ctrl.Request{}
+
+	for _, req := range requests {
+		if _, exists := seen[req.NamespacedName]; !exists {
+			result = append(result, req)
+			seen[req.NamespacedName] = true
+		}
+	}
+
+	return result
 }

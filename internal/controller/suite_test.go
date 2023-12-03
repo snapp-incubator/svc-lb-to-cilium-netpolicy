@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -75,6 +77,9 @@ var _ = BeforeSuite(func() {
 	err = corev1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = networkingv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	err = ciliumv2.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -89,6 +94,20 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 	Expect(k8sManager).NotTo(BeNil())
+
+	err = k8sManager.GetFieldIndexer().IndexField(
+		context.Background(),
+		&corev1.Service{},
+		"spec.type",
+		func(object client.Object) []string {
+			service, ok := object.(*corev1.Service)
+			if !ok {
+				return []string{}
+			}
+
+			return []string{string(service.Spec.Type)}
+		})
+	Expect(err).ToNot(HaveOccurred())
 
 	reconcilerExtended := controller.NewReconcilerExtended(k8sManager)
 

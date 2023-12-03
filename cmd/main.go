@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -25,11 +26,13 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -103,6 +106,22 @@ func main() {
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&corev1.Service{},
+		"spec.type",
+		func(object client.Object) []string {
+			service, ok := object.(*corev1.Service)
+			if !ok {
+				return []string{}
+			}
+
+			return []string{string(service.Spec.Type)}
+		}); err != nil {
+		setupLog.Error(err, "failed to create index for .spec.type", "controller", "Service")
 		os.Exit(1)
 	}
 
