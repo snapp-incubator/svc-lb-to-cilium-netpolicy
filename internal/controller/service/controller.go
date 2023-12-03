@@ -43,7 +43,7 @@ import (
 // move the current state of the cluster closer to the desired state.
 // It instantiate a new ReconcilerExtended struct and start the reconciliation flow.
 func (re *ReconcilerExtended) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := log.FromContext(ctx).WithName("reconcile")
+	logger := log.FromContext(ctx).WithName("reconcile loop")
 
 	re.cnp = nil
 	re.logger = logger
@@ -59,6 +59,8 @@ func (re *ReconcilerExtended) Reconcile(ctx context.Context, req ctrl.Request) (
 func (re *ReconcilerExtended) manageLogic(ctx context.Context) (*ctrl.Result, error) {
 	var logicFuncs []logicFunc
 
+	var shouldExcludeNS bool
+
 	err := re.Client.Get(ctx, re.request.NamespacedName, re.service)
 
 	if client.IgnoreNotFound(err) != nil {
@@ -72,23 +74,39 @@ func (re *ReconcilerExtended) manageLogic(ctx context.Context) (*ctrl.Result, er
 		return &ctrl.Result{Requeue: false}, nil
 	}
 
+	re.logger = re.logger.WithValues("namespace", re.request.Namespace)
+
+	re.cacheLock.Lock()
+
 	// CiliumNetworkPolicy objects neither should be created nor exist in some namespaces.
 	// Therefore, specific namespaces are excluded by some configurations.
 	// shouldExcludeNamespace determine the namespace exclusion status based on the configurations defined.
-	shouldExcludeNS, err := re.shouldExcludeNamespace(ctx)
-	if err != nil {
-		return &ctrl.Result{Requeue: true}, fmt.Errorf(consts.NamespaceExclusionStateError, err)
+	if re.namespaceExclusionCache[re.request.Namespace] == nil {
+		re.logger.Info("The namespace exclusion cache entry is not set")
+
+		err := re.determineExclusionReasons(ctx)
+		if err != nil {
+			return &ctrl.Result{Requeue: true}, fmt.Errorf(consts.NamespaceExclusionStateError, err)
+		}
 	}
 
-	logicFuncs = append(logicFuncs, re.findCNPbyOwner)
+	exclusionReasons := re.namespaceExclusionCache[re.request.Namespace]
+
+	re.cacheLock.Unlock()
+
+	shouldExcludeNS = determineExclusionStatus(exclusionReasons)
+
+	re.logger = re.logger.WithValues("namespaceExcluded", shouldExcludeNS)
+
+	logicFuncs = append(logicFuncs, re.findCNPByOwner)
 
 	if re.shouldDeleteCNP() || shouldExcludeNS {
 		logicFuncs = append(logicFuncs,
-			re.handleCNPdelete,
+			re.handleCNPDelete,
 			re.removeFinalizer)
 	} else {
 		logicFuncs = append(logicFuncs,
-			re.handleCNPupdateOrCreate,
+			re.handleCNPUpdateOrCreate,
 			re.addFinalizer)
 	}
 
@@ -106,8 +124,8 @@ func (re *ReconcilerExtended) manageLogic(ctx context.Context) (*ctrl.Result, er
 	return &ctrl.Result{Requeue: false}, nil
 }
 
-// findCNPbyOwner tries to find the CiliumNetworkPolicy object owned by the Service object using OwnerReference.
-func (re *ReconcilerExtended) findCNPbyOwner(ctx context.Context) (*ctrl.Result, error) {
+// findCNPByOwner tries to find the CiliumNetworkPolicy object owned by the Service object using OwnerReference.
+func (re *ReconcilerExtended) findCNPByOwner(ctx context.Context) (*ctrl.Result, error) {
 	ciliumNetworkPolicyList := ciliumv2.CiliumNetworkPolicyList{}
 
 	if err := re.Client.List(ctx, &ciliumNetworkPolicyList, client.InNamespace(re.service.Namespace)); err != nil {
@@ -132,8 +150,8 @@ func (re *ReconcilerExtended) findCNPbyOwner(ctx context.Context) (*ctrl.Result,
 	return nil, nil
 }
 
-// handleCNPupdateOrCreate handles the creation or update of the CiliumNetworkPolicy object if the Service type is "LoadBalancer".
-func (re *ReconcilerExtended) handleCNPupdateOrCreate(ctx context.Context) (*ctrl.Result, error) {
+// handleCNPUpdateOrCreate handles the creation or update of the CiliumNetworkPolicy object if the Service type is "LoadBalancer".
+func (re *ReconcilerExtended) handleCNPUpdateOrCreate(ctx context.Context) (*ctrl.Result, error) {
 	var result *ctrl.Result
 
 	var err error
@@ -145,7 +163,7 @@ func (re *ReconcilerExtended) handleCNPupdateOrCreate(ctx context.Context) (*ctr
 		return &ctrl.Result{Requeue: false}, nil
 	}
 
-	if re.isCNPfound() {
+	if re.isCNPFound() {
 		result, err = re.updateCNP(ctx)
 	} else {
 		result, err = re.createCNP(ctx)
@@ -154,9 +172,9 @@ func (re *ReconcilerExtended) handleCNPupdateOrCreate(ctx context.Context) (*ctr
 	return result, err
 }
 
-// handleCNPdelete handles the deletion of the CiliumNetworkPolicy object.
-func (re *ReconcilerExtended) handleCNPdelete(ctx context.Context) (*ctrl.Result, error) {
-	if !re.isCNPfound() {
+// handleCNPDelete handles the deletion of the CiliumNetworkPolicy object.
+func (re *ReconcilerExtended) handleCNPDelete(ctx context.Context) (*ctrl.Result, error) {
+	if !re.isCNPFound() {
 		re.logger.Info(consts.CiliumNetworkPolicyDeleteSkipInfo)
 
 		return nil, nil
@@ -184,11 +202,13 @@ func (re *ReconcilerExtended) updateCNP(ctx context.Context) (*ctrl.Result, erro
 	// Check if CiliumNetworkPolicy object labels map was changed, if so set as desired.
 	if !reflect.DeepEqual(re.cnp.ObjectMeta.Labels, desiredCNP.ObjectMeta.Labels) {
 		re.cnp.ObjectMeta.Labels = desiredCNP.ObjectMeta.Labels
+
 		shouldUpdate = true
 	}
 	// Check if CiliumNetworkPolicy object annotations map was changed, if so set as desired.
 	if !reflect.DeepEqual(re.cnp.ObjectMeta.Annotations, desiredCNP.ObjectMeta.Annotations) {
 		re.cnp.ObjectMeta.Annotations = desiredCNP.ObjectMeta.Annotations
+
 		shouldUpdate = true
 	}
 
