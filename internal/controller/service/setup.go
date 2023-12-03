@@ -263,6 +263,9 @@ func (re *ReconcilerExtended) networkPolicyEventHandler(ctx context.Context, obj
 		} else {
 			// Add exclusion reason for the namespace indicating the source of the exclusion
 			cacheEntry[noNetworkPolicyExistence] = empty{}
+
+			logger.Info(consts.NamespaceExcludedNoNetworkPolicyMatchInfo +
+				consts.NamespaceExclusionReasonAddedInfo)
 		}
 
 	case updateEvent:
@@ -424,6 +427,9 @@ func (re *ReconcilerExtended) ciliumNetworkPolicyEventHandler(ctx context.Contex
 		} else {
 			// Add exclusion reason for the namespace indicating the source of the exclusion
 			cacheEntry[noUnmanagedCiliumNetworkPolicyExistence] = empty{}
+
+			logger.Info(consts.NamespaceExcludedNoCiliumNetworkPolicyMatchInfo +
+				consts.NamespaceExclusionReasonAddedInfo)
 		}
 	}
 
