@@ -13,7 +13,6 @@ linters:
     - godot
     # - godox
     - gofmt
-    - goimports
     - gosec
     - gosimple
     - govet
@@ -39,6 +38,3 @@ linters:
     - wastedassign
     - whitespace
     - wsl
-linters-settings:
-  goimports:
-    local-prefixes: github.com/snapp-incubator/svc-lb-to-cilium-netpolicy
