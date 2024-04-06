@@ -50,15 +50,14 @@ const (
 
 // Global variables for test configuration
 var (
-	CiliumNetworkPolicyControllerLabels                  map[string]string             = map[string]string{"snappcloud.io/controller-managed": "true", "snappcloud.io/controller": "svc-lb-to-cilium-netpolicy"}
-	CiliumNetworkPolicyAllowedEntities                   cilium_policy_api.EntitySlice = []cilium_policy_api.Entity{cilium_policy_api.EntityCluster}
-	CiliumNetworkPolicyAllowedEntitiesForExposedServices cilium_policy_api.EntitySlice = []cilium_policy_api.Entity{cilium_policy_api.EntityCluster, cilium_policy_api.EntityWorld}
-	CiliumNetworkPolicyAnnotations                       map[string]string             = map[string]string{"snappcloud.io/team": "snappcloud", "snappcloud.io/sub-team": "network"}
-	ExcludedNamespaceLabelsViaLabelsSet                  map[string]string             = map[string]string{"k1": "v1", "k2": "v2"} // Set based on the configuration
-	MetallbAnnotations                                   map[string]string             = map[string]string{"metallb.universe.tf/address-pool": "vpn-access"}
-	ServiceLabels                                        map[string]string             = map[string]string{"app.kubernetes.io/name": "test", "k2": "v2"}
-	ServicePorts                                         []corev1.ServicePort          = []corev1.ServicePort{{Name: "http", Port: 80}}
-	ServiceSelector                                      map[string]string             = map[string]string{"app.kubernetes.io/name": "test", "k2": "v2"}
+	CiliumNetworkPolicyControllerLabels map[string]string             = map[string]string{"snappcloud.io/controller-managed": "true", "snappcloud.io/controller": "svc-lb-to-cilium-netpolicy"}
+	CiliumNetworkPolicyAllowedEntities  cilium_policy_api.EntitySlice = []cilium_policy_api.Entity{cilium_policy_api.EntityCluster, cilium_policy_api.EntityWorld}
+	CiliumNetworkPolicyAnnotations      map[string]string             = map[string]string{"snappcloud.io/team": "snappcloud", "snappcloud.io/sub-team": "network"}
+	ExcludedNamespaceLabelsViaLabelsSet map[string]string             = map[string]string{"k1": "v1", "k2": "v2"} // Set based on the configuration
+	MetallbAnnotations                  map[string]string             = map[string]string{"metallb.universe.tf/address-pool": "vpn-access"}
+	ServiceLabels                       map[string]string             = map[string]string{"app.kubernetes.io/name": "test", "k2": "v2"}
+	ServicePorts                        []corev1.ServicePort          = []corev1.ServicePort{{Name: "http", Port: 80}}
+	ServiceSelector                     map[string]string             = map[string]string{"app.kubernetes.io/name": "test", "k2": "v2"}
 )
 
 // Main block for testing 'LoadBalancer Service' to CiliumNetworkPolicy controller
@@ -113,23 +112,6 @@ var _ = Describe("Testing LoadBalancer Service to CiliumNetworkPolicy Controller
 					Namespace: namespace,
 					Name:      name,
 					Labels:    ServiceLabels,
-				},
-				Spec: corev1.ServiceSpec{
-					Ports:    ServicePorts,
-					Type:     corev1.ServiceTypeLoadBalancer,
-					Selector: ServiceSelector,
-				},
-			}
-		}
-
-		// Utility function to get a sample exposed Service
-		getSampleExposedService := func(name, namespace string) *corev1.Service {
-			return &corev1.Service{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace:   namespace,
-					Name:        name,
-					Labels:      ServiceLabels,
-					Annotations: MetallbAnnotations,
 				},
 				Spec: corev1.ServiceSpec{
 					Ports:    ServicePorts,
@@ -621,8 +603,8 @@ var _ = Describe("Testing LoadBalancer Service to CiliumNetworkPolicy Controller
 			deleteService(serviceObj)
 		})
 
-		// Test case: Verifies that the CiliumNetworkPolicy object's Spec.Ingress[0].FromEntities are set based on the CiliumNetworkPolicyAllowedEntities variable for non-exposed services
-		It("should set CiliumNetworkPolicy object \"Spec.Ingress[0].FromEntities\" based on CiliumNetworkPolicyAllowedEntities variable if the Service is not exposed", func() {
+		// Test case: Verifies that the CiliumNetworkPolicy object's Spec.Ingress[0].FromEntities are set based on the CiliumNetworkPolicyAllowedEntities variable
+		It("should set CiliumNetworkPolicy object \"Spec.Ingress[0].FromEntities\" based on CiliumNetworkPolicyAllowedEntities variable", func() {
 			// Create and verify a sample LoadBalancer Service in the default namespace
 			serviceObj := getSampleService(ServiceName, DefaultNamespace)
 			Expect(k8sClient.Create(context.Background(), serviceObj)).To(Succeed())
@@ -634,33 +616,10 @@ var _ = Describe("Testing LoadBalancer Service to CiliumNetworkPolicy Controller
 			// Wait for a specified interval to ensure the state is stable
 			time.Sleep(WaitInterval * time.Second)
 
-			//  Retrieve the created CiliumNetworkPolicy object and verify its Ingress FromEntities
+			// Retrieve the created CiliumNetworkPolicy object and verify its Ingress FromEntities
 			ciliumNetworkPolicyObj := ciliumv2.CiliumNetworkPolicy{}
 			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Namespace: DefaultNamespace, Name: CiliumNetworkPolicyName}, &ciliumNetworkPolicyObj)).To(Succeed())
 			Expect(ciliumNetworkPolicyObj.Spec.Ingress[0].FromEntities).To(Equal(CiliumNetworkPolicyAllowedEntities))
-
-			// Cleanup: Delete the dummy CiliumNetworkPolicy and Service objects
-			deleteCiliumNetworkPolicy(dummyCiliumNetworkPolicyObj)
-			deleteService(serviceObj)
-		})
-
-		// Test case: Verifies that the CiliumNetworkPolicy object's Spec.Ingress[0].FromEntities are set based on the CiliumNetworkPolicyAllowedEntitiesForExposedServices variable for exposed services
-		It("should set CiliumNetworkPolicy object \"Spec.Ingress[0].FromEntities\" based on CiliumNetworkPolicyAllowedEntities variable if the Service is exposed", func() {
-			// Create and verify a sample LoadBalancer Service in the default namespace
-			serviceObj := getSampleExposedService(ServiceName, DefaultNamespace)
-			Expect(k8sClient.Create(context.Background(), serviceObj)).To(Succeed())
-
-			// Create a dummy CiliumNetworkPolicy object to bypass the 'NoPolicyRule' rule and verify its creation
-			dummyCiliumNetworkPolicyObj := getSampleCiliumNetworkPolicy(DummyName, DefaultNamespace)
-			Expect(k8sClient.Create(context.Background(), dummyCiliumNetworkPolicyObj)).To(Succeed())
-
-			// Wait for a specified interval to ensure the state is stable
-			time.Sleep(WaitInterval * time.Second)
-
-			// Retrieve the created CiliumNetworkPolicy object and verify its Ingress FromEntities for exposed services
-			ciliumNetworkPolicyObj := ciliumv2.CiliumNetworkPolicy{}
-			Expect(k8sClient.Get(context.Background(), types.NamespacedName{Namespace: DefaultNamespace, Name: CiliumNetworkPolicyName}, &ciliumNetworkPolicyObj)).To(Succeed())
-			Expect(ciliumNetworkPolicyObj.Spec.Ingress[0].FromEntities).To(Equal(CiliumNetworkPolicyAllowedEntitiesForExposedServices))
 
 			// Cleanup: Delete the dummy CiliumNetworkPolicy and Service objects
 			deleteCiliumNetworkPolicy(dummyCiliumNetworkPolicyObj)
