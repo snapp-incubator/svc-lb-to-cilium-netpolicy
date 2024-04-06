@@ -245,9 +245,11 @@ func (re *ReconcilerExtended) addFinalizer(ctx context.Context) (*ctrl.Result, e
 			if err := re.Client.Get(ctx, re.request.NamespacedName, re.service); err != nil {
 				return err
 			}
+
 			if controllerutil.ContainsFinalizer(re.service, consts.ServiceFinalizerString) {
 				return nil
 			}
+
 			controllerutil.AddFinalizer(re.service, consts.ServiceFinalizerString)
 
 			return re.Client.Update(ctx, re.service)
@@ -268,9 +270,11 @@ func (re *ReconcilerExtended) removeFinalizer(ctx context.Context) (*ctrl.Result
 			if err := re.Client.Get(ctx, re.request.NamespacedName, re.service); err != nil {
 				return err
 			}
+
 			if !controllerutil.ContainsFinalizer(re.service, consts.ServiceFinalizerString) {
 				return nil
 			}
+
 			controllerutil.RemoveFinalizer(re.service, consts.ServiceFinalizerString)
 
 			return re.Client.Update(ctx, re.service)
