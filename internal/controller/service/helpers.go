@@ -51,17 +51,9 @@ var (
 
 // buildCNP builds and returns a CiliumNetworkPolicy struct based on the Service object.
 func (re *ReconcilerExtended) buildCNP() *ciliumv2.CiliumNetworkPolicy {
-	var fromEntities cilium_policy_api.EntitySlice
-
-	if re.service.Annotations["metallb.universe.tf/address-pool"] == "vpn-access" {
-		fromEntities = cilium_policy_api.EntitySlice{
-			cilium_policy_api.EntityCluster,
-			cilium_policy_api.EntityWorld,
-		}
-	} else {
-		fromEntities = cilium_policy_api.EntitySlice{
-			cilium_policy_api.EntityCluster,
-		}
+	fromEntities := cilium_policy_api.EntitySlice{
+		cilium_policy_api.EntityCluster,
+		cilium_policy_api.EntityWorld,
 	}
 
 	endpointSelectorLabelsMap := make(map[string]string, len(re.service.Spec.Selector))
