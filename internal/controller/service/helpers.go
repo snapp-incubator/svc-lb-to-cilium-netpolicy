@@ -24,6 +24,7 @@ import (
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	cilium_slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	cilium_labels "github.com/cilium/cilium/pkg/labels"
+	cilium_labelsfilter "github.com/cilium/cilium/pkg/labelsfilter"
 	cilium_policy_api "github.com/cilium/cilium/pkg/policy/api"
 	"golang.org/x/exp/slices"
 	corev1 "k8s.io/api/core/v1"
@@ -48,6 +49,13 @@ var (
 	controllerAnnotationsMap = map[string]string{"snappcloud.io/team": "snappcloud", "snappcloud.io/sub-team": "network"}
 	controllerLabelsMap      = map[string]string{"snappcloud.io/controller-managed": "true", "snappcloud.io/controller": "svc-lb-to-cilium-netpolicy"}
 )
+
+func init() {
+	err := cilium_labelsfilter.ParseLabelPrefixCfg([]string{""}, "")
+	if err != nil {
+		log.Log.Info("error preparing cilium label filters", "error", err)
+	}
+}
 
 // buildCNP builds and returns a CiliumNetworkPolicy struct based on the Service object.
 func (re *ReconcilerExtended) buildCNP() *ciliumv2.CiliumNetworkPolicy {
@@ -74,7 +82,13 @@ func (re *ReconcilerExtended) buildCNP() *ciliumv2.CiliumNetworkPolicy {
 	// }
 	// endpointSelectorLabelsMap := CNPlabels.StringMap()
 	// ##########################################################################
-	for k, v := range re.service.Spec.Selector {
+
+	identityLabels, informationLabels := cilium_labelsfilter.Filter(cilium_labels.Map2Labels(re.service.Spec.Selector, cilium_labels.LabelSourceK8s))
+	if len(informationLabels.K8sStringMap()) != 0 {
+		re.logger.Info("excluded labels", "information labels", informationLabels.String())
+	}
+
+	for k, v := range identityLabels.K8sStringMap() {
 		endpointSelectorLabelsMap[cilium_labels.LabelSourceK8s+cilium_labels.PathDelimiter+k] = v
 	}
 
