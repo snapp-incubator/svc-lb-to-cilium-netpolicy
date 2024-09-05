@@ -87,10 +87,8 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:  scheme,
-		Metrics: server.Options{BindAddress: metricsAddr},
-		//MetricsBindAddress:     metricsAddr,
-		//Port:                   9443,
+		Scheme:                 scheme,
+		Metrics:                server.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		// LeaderElectionID:       "",
