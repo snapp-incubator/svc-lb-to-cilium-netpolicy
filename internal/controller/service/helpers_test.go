@@ -106,7 +106,8 @@ func Test_getEndponitSelector(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotCiliumEndPointSelector, err := getEndponitSelector(tt.given)
+			re := &ReconcilerExtended{}
+			gotCiliumEndPointSelector, err := re.getEndponitSelector(tt.given)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getEndponitSelector() error = %v, wantErr %v", err, tt.wantErr)
 				return

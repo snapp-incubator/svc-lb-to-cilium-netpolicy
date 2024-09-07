@@ -64,7 +64,7 @@ func (re *ReconcilerExtended) buildCNP() (cnp *ciliumv2.CiliumNetworkPolicy, err
 		cilium_policy_api.EntityWorld,
 	}
 
-	endpointSelector, err := getEndponitSelector(re.service.Spec.Selector)
+	endpointSelector, err := re.getEndponitSelector(re.service.Spec.Selector)
 	if err == nil {
 		cnp = &ciliumv2.CiliumNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
@@ -92,10 +92,10 @@ func (re *ReconcilerExtended) buildCNP() (cnp *ciliumv2.CiliumNetworkPolicy, err
 // getEndponitSelector is used to filter and extract cilium endpoint selector from service labels.
 //
 //nolint:wsl
-func getEndponitSelector(serviceSlector map[string]string) (ciliumEndPointSelector cilium_policy_api.EndpointSelector, err error) {
+func (re *ReconcilerExtended) getEndponitSelector(serviceSlector map[string]string) (ciliumEndPointSelector cilium_policy_api.EndpointSelector, err error) {
 	identityLabels, informationLabels := cilium_labelsfilter.Filter(cilium_labels.Map2Labels(serviceSlector, cilium_labels.LabelSourceK8s))
 	if len(informationLabels.K8sStringMap()) != 0 {
-		log.Log.Info("excluded_labels", "information labels", informationLabels.String())
+		re.logger.Info("excluded_labels", "information labels", informationLabels.String())
 	}
 
 	identityLabelSelector := cilium_slim_metav1.LabelSelector{MatchLabels: identityLabels.K8sStringMap()}
