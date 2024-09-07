@@ -191,7 +191,11 @@ func (re *ReconcilerExtended) handleCNPDelete(ctx context.Context) (*ctrl.Result
 func (re *ReconcilerExtended) updateCNP(ctx context.Context) (*ctrl.Result, error) {
 	var shouldUpdate bool
 
-	desiredCNP := re.buildCNP()
+	desiredCNP, err := re.buildCNP()
+	if err != nil {
+		re.logger.Info("failed to build cnp", "buildCNP", err)
+		return &ctrl.Result{}, nil
+	}
 
 	// Check if CiliumNetworkPolicy object spec was changed, if so set as desired.
 	if !reflect.DeepEqual(re.cnp.Spec.DeepCopy(), desiredCNP.Spec) {
@@ -225,7 +229,11 @@ func (re *ReconcilerExtended) updateCNP(ctx context.Context) (*ctrl.Result, erro
 
 // createCNP creates the desired CiliumNetworkPolicy object.
 func (re *ReconcilerExtended) createCNP(ctx context.Context) (*ctrl.Result, error) {
-	desiredCNP := re.buildCNP()
+	desiredCNP, err := re.buildCNP()
+	if err != nil {
+		re.logger.Info("failed to build cnp", "buildCNP", err)
+		return &ctrl.Result{}, nil
+	}
 
 	if err := controllerutil.SetControllerReference(re.service, desiredCNP, re.scheme); err != nil {
 		return &ctrl.Result{Requeue: true}, fmt.Errorf(consts.ControllerReferenceSetError, err)
