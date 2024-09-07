@@ -194,6 +194,7 @@ func (re *ReconcilerExtended) updateCNP(ctx context.Context) (*ctrl.Result, erro
 	desiredCNP, err := re.buildCNP()
 	if err != nil {
 		re.logger.Info("failed to build cnp", "buildCNP", err)
+
 		return &ctrl.Result{}, nil
 	}
 
@@ -232,6 +233,7 @@ func (re *ReconcilerExtended) createCNP(ctx context.Context) (*ctrl.Result, erro
 	desiredCNP, err := re.buildCNP()
 	if err != nil {
 		re.logger.Info("failed to build cnp", "buildCNP", err)
+
 		return &ctrl.Result{}, nil
 	}
 

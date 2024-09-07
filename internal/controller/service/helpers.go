@@ -59,7 +59,6 @@ func init() {
 
 // buildCNP builds and returns a CiliumNetworkPolicyand error based on the Service object.
 func (re *ReconcilerExtended) buildCNP() (cnp *ciliumv2.CiliumNetworkPolicy, err error) {
-
 	fromEntities := cilium_policy_api.EntitySlice{
 		cilium_policy_api.EntityCluster,
 		cilium_policy_api.EntityWorld,
@@ -67,7 +66,6 @@ func (re *ReconcilerExtended) buildCNP() (cnp *ciliumv2.CiliumNetworkPolicy, err
 
 	endpointSelector, err := getEndponitSelector(re.service.Spec.Selector)
 	if err == nil {
-
 		cnp = &ciliumv2.CiliumNetworkPolicy{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        re.service.Name,
@@ -91,18 +89,21 @@ func (re *ReconcilerExtended) buildCNP() (cnp *ciliumv2.CiliumNetworkPolicy, err
 	return cnp, err
 }
 
-// getEndponitSelector is used to filter and extract cilium endpoint selector from service labels
+// getEndponitSelector is used to filter and extract cilium endpoint selector from service labels.
+//
+//nolint:wsl
 func getEndponitSelector(serviceSlector map[string]string) (ciliumEndPointSelector cilium_policy_api.EndpointSelector, err error) {
-
 	identityLabels, informationLabels := cilium_labelsfilter.Filter(cilium_labels.Map2Labels(serviceSlector, cilium_labels.LabelSourceK8s))
 	if len(informationLabels.K8sStringMap()) != 0 {
 		log.Log.Info("excluded_labels", "information labels", informationLabels.String())
 	}
+
 	identityLabelSelector := cilium_slim_metav1.LabelSelector{MatchLabels: identityLabels.K8sStringMap()}
 	ciliumEndPointSelector = cilium_policy_api.NewESFromK8sLabelSelector(cilium_labels.LabelSourceK8sKeyPrefix, &identityLabelSelector)
 	if len(ciliumEndPointSelector.MatchLabels) == 0 {
 		err = errors.New("endpointSelector is empty")
 	}
+
 	return ciliumEndPointSelector, err
 }
 
