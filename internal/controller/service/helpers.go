@@ -51,8 +51,7 @@ var (
 )
 
 func init() {
-	err := cilium_labelsfilter.ParseLabelPrefixCfg([]string{""}, "")
-	if err != nil {
+	if err := cilium_labelsfilter.ParseLabelPrefixCfg([]string{""}, ""); err != nil {
 		log.Log.Info("error preparing cilium label filters", "error", err)
 	}
 }

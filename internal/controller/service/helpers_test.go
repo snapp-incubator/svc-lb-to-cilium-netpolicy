@@ -35,15 +35,15 @@ func TestBuildCNP_LabelFilter(t *testing.T) {
 		want    map[string]string
 	}{
 
-		{name: "ShuoldNotBeFiltered",
+		{name: "ShouldNotBeFiltered",
 			given: map[string]string{"app": "test", "stack": "backend"},
 			want:  map[string]string{"k8s.app": "test", "k8s.stack": "backend"}},
 
-		{name: "ShuoldBeFiltered",
+		{name: "ShouldBeFiltered_statefulset.kubernetes.io/pod-name",
 			given: map[string]string{"statefulset.kubernetes.io/pod-name": "test", "stack": "backend"},
 			want:  map[string]string{"k8s.stack": "backend"}},
 
-		{name: "ShuoldBeFiltered",
+		{name: "ShouldBeFiltered_k8s.io",
 			given: map[string]string{"k8s.io/fake": "test", "stack": "backend"},
 			want:  map[string]string{"k8s.stack": "backend"}},
 	}
