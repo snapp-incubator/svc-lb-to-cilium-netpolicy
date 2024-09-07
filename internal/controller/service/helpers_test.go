@@ -52,7 +52,7 @@ func TestBuildCNP_LabelFilter(t *testing.T) {
 			wantErr: false,
 		},
 
-		{name: "ShouldBeFiltered_k8s.io",
+		{name: "ShouldBeEmptyReusltWithError",
 			given:   map[string]string{"statefulset.kubernetes.io/pod-name": "test"},
 			want:    map[string]string{},
 			wantErr: true,
