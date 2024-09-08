@@ -22,7 +22,7 @@ linters:
     - nilerr
     - nlreturn
     - nolintlint
-    - nonamedreturns
+    #- nonamedreturns
     - prealloc
     - predeclared
     - reassign

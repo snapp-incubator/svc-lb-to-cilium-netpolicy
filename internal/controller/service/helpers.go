@@ -18,12 +18,14 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 
 	ciliumv2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	cilium_slim_metav1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/apis/meta/v1"
 	cilium_labels "github.com/cilium/cilium/pkg/labels"
+	cilium_labelsfilter "github.com/cilium/cilium/pkg/labelsfilter"
 	cilium_policy_api "github.com/cilium/cilium/pkg/policy/api"
 	"golang.org/x/exp/slices"
 	corev1 "k8s.io/api/core/v1"
@@ -49,59 +51,60 @@ var (
 	controllerLabelsMap      = map[string]string{"snappcloud.io/controller-managed": "true", "snappcloud.io/controller": "svc-lb-to-cilium-netpolicy"}
 )
 
-// buildCNP builds and returns a CiliumNetworkPolicy struct based on the Service object.
-func (re *ReconcilerExtended) buildCNP() *ciliumv2.CiliumNetworkPolicy {
+func init() {
+	if err := cilium_labelsfilter.ParseLabelPrefixCfg([]string{""}, ""); err != nil {
+		log.Log.Info("error preparing cilium label filters", "error", err)
+	}
+}
+
+// buildCNP builds and returns a CiliumNetworkPolicyand error based on the Service object.
+func (re *ReconcilerExtended) buildCNP() (cnp *ciliumv2.CiliumNetworkPolicy, err error) {
 	fromEntities := cilium_policy_api.EntitySlice{
 		cilium_policy_api.EntityCluster,
 		cilium_policy_api.EntityWorld,
 	}
 
-	endpointSelectorLabelsMap := make(map[string]string, len(re.service.Spec.Selector))
-
-	// Cilium imports labels from different sources.
-	// It expects each label key to specify the source in the form of Source:Key
-	// However, if you pass the labels in the form of map["Source:Key"]"Value", each label key would become invalid.
-	// For example:
-	// k8s:app.kubernetes.io/name -> k8s:app:kubernetes.io/name
-	// The workaround is to add a prefix with "." instead of ":" to manipulate the labels key correctly.
-	// k8s.app.kubernetes.io/name -> k8s:app.kubernetes.io/name
-
-	// TODO: Build the labels using cilium_labels.Label struct.
-	// ##########################################################################
-	// CNPlabels := make(cilium_labels.Labels, len(re.service.Spec.Selector))
-	// for k, v := range re.service.Spec.Selector {
-	// 	CNPlabels[k] = cilium_labels.NewLabel(k, v, cilium_labels.LabelSourceK8s)
-	// }
-	// endpointSelectorLabelsMap := CNPlabels.StringMap()
-	// ##########################################################################
-	for k, v := range re.service.Spec.Selector {
-		endpointSelectorLabelsMap[cilium_labels.LabelSourceK8s+cilium_labels.PathDelimiter+k] = v
-	}
-
-	cnp := &ciliumv2.CiliumNetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        re.service.Name,
-			Namespace:   re.service.Namespace,
-			Labels:      re.getCNPDesiredLabels(),
-			Annotations: controllerAnnotationsMap,
-		},
-		Spec: &cilium_policy_api.Rule{
-			EndpointSelector: cilium_policy_api.EndpointSelector{
-				LabelSelector: &cilium_slim_metav1.LabelSelector{
-					MatchLabels: endpointSelectorLabelsMap,
-				},
+	endpointSelector, err := re.getEndponitSelector(re.service.Spec.Selector)
+	if err == nil {
+		cnp = &ciliumv2.CiliumNetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        re.service.Name,
+				Namespace:   re.service.Namespace,
+				Labels:      re.getCNPDesiredLabels(),
+				Annotations: controllerAnnotationsMap,
 			},
-			Ingress: []cilium_policy_api.IngressRule{
-				{
-					IngressCommonRule: cilium_policy_api.IngressCommonRule{
-						FromEntities: fromEntities,
+			Spec: &cilium_policy_api.Rule{
+				EndpointSelector: endpointSelector,
+				Ingress: []cilium_policy_api.IngressRule{
+					{
+						IngressCommonRule: cilium_policy_api.IngressCommonRule{
+							FromEntities: fromEntities,
+						},
 					},
 				},
 			},
-		},
+		}
 	}
 
-	return cnp
+	return cnp, err
+}
+
+// getEndponitSelector is used to filter and extract cilium endpoint selector from service labels.
+//
+//nolint:wsl
+func (re *ReconcilerExtended) getEndponitSelector(serviceSlector map[string]string) (ciliumEndPointSelector cilium_policy_api.EndpointSelector, err error) {
+	identityLabels, informationLabels := cilium_labelsfilter.Filter(cilium_labels.Map2Labels(serviceSlector, cilium_labels.LabelSourceK8s))
+	if len(informationLabels.K8sStringMap()) != 0 {
+		re.logger.Info("excluded_labels", "information labels", informationLabels.String())
+	}
+
+	identityLabelSelector := cilium_slim_metav1.LabelSelector{MatchLabels: identityLabels.K8sStringMap()}
+	ciliumEndPointSelector = cilium_policy_api.NewESFromK8sLabelSelector(cilium_labels.LabelSourceK8sKeyPrefix, &identityLabelSelector)
+	if len(ciliumEndPointSelector.MatchLabels) == 0 {
+		err = errors.New("endpointSelector is empty")
+	}
+
+	return ciliumEndPointSelector, err
 }
 
 // isLoadBalancerService returns true if the Service type is "LoadBalancer" and false otherwise.
